@@ -1,0 +1,12 @@
+.project4/
+__pycache__/
+*.ipynb_checkpoints
+.DS_Store
+train.csv
+test.csv
+oil.csv
+transactions.csv
+sample_submission.csv
+store-sales-time-series-forecasting.zip
+store-sales-time-series-forecasting/
+.qodo/
