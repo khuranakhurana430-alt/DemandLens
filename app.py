@@ -144,7 +144,6 @@ predict_button = st.sidebar.button("📊 Forecast Sales", use_container_width=Tr
 st.markdown('<p class="main-title">DemandLens</p>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">AI-Powered Sales & Demand Forecasting Dashboard</p>', unsafe_allow_html=True)
 
-# Instructions Box
 st.markdown("""
 <div class="info-box">
     <b>📖 How to use:</b><br>
@@ -170,28 +169,49 @@ st.markdown("<br>", unsafe_allow_html=True)
 # ==================== PREDICTION ====================
 if predict_button:
     try:
-        # Get last 30 days for this store-family combo
+        # Get history for this store-family combo
         filtered = history[
             (history['store_nbr'] == store_nbr) &
             (history['family'] == family)
         ].sort_values('date')
 
-        if len(filtered) < 7:
-            st.error(f"Not enough history for this combination. Found {len(filtered)} days.")
-            st.stop()
+        # If not enough history, try padding with sales=0 for missing days
+        if len(filtered) < 28:
+            st.warning(f"This combo only has {len(filtered)} days of history. Padding with zeros to reach 28 days.")
+            # Create a 28-day date range ending at the last available date
+            if len(filtered) > 0:
+                last_date = filtered['date'].max()
+                date_range = pd.date_range(end=last_date, periods=28, freq='D')
+                padded = pd.DataFrame({'date': date_range})
+                padded = padded.merge(filtered[['date', 'sales']], on='date', how='left')
+                padded['sales'] = padded['sales'].fillna(0)
+                sales_series = padded['sales'].values
+            else:
+                st.error("No data at all for this combination. Please pick a different one.")
+                st.stop()
+        else:
+            sales_series = filtered['sales'].values
 
-        sales_series = filtered['sales'].values
-
-        # Build features
+        # Build lag features
         lag_1 = sales_series[-1]
         lag_7 = sales_series[-7]
+        lag_14 = sales_series[-14]
+        lag_28 = sales_series[-28]
+
+        # Build rolling features
         rolling_mean_7 = np.mean(sales_series[-7:])
+        rolling_mean_14 = np.mean(sales_series[-14:])
+        rolling_mean_28 = np.mean(sales_series[-28:])
+        rolling_std_7 = np.std(sales_series[-7:])
+        rolling_std_14 = np.std(sales_series[-14:])
+        rolling_std_28 = np.std(sales_series[-28:])
 
         # Get store info
         store_info = stores[stores['store_nbr'] == store_nbr].iloc[0]
         store_type = store_info['type']
         cluster = store_info['cluster']
 
+        # Encode categorical
         family_encoded = le_family.transform([family])[0]
         type_encoded = le_type.transform([store_type])[0]
 
@@ -214,12 +234,20 @@ if predict_button:
             'is_weekend': [1 if forecast_date.dayofweek >= 5 else 0],
             'lag_1': [lag_1],
             'lag_7': [lag_7],
-            'rolling_mean_7': [rolling_mean_7]
+            'lag_14': [lag_14],
+            'lag_28': [lag_28],
+            'rolling_mean_7': [rolling_mean_7],
+            'rolling_mean_14': [rolling_mean_14],
+            'rolling_mean_28': [rolling_mean_28],
+            'rolling_std_7': [rolling_std_7],
+            'rolling_std_14': [rolling_std_14],
+            'rolling_std_28': [rolling_std_28]
         })
 
+        # Match column order
         input_data = input_data[features]
 
-        # Predict
+        # Predict (in log space, then convert back)
         pred_log = model.predict(input_data)[0]
         prediction = np.expm1(pred_log)
         prediction = max(0, prediction)
@@ -262,7 +290,7 @@ st.markdown('<div class="dashboard-card"><h4 style="color: #38bdf8;">📈 Sales 
 filtered_trend = history[
     (history['store_nbr'] == store_nbr) &
     (history['family'] == family)
-].sort_values('date')
+].sort_values('date').tail(30)
 
 if len(filtered_trend) > 0:
     fig_line = px.line(
@@ -280,7 +308,7 @@ if len(filtered_trend) > 0:
     )
     st.plotly_chart(fig_line, use_container_width=True)
 else:
-    st.info("No history available.")
+    st.info("No history available for this combination.")
 
 st.markdown('</div>', unsafe_allow_html=True)
 
